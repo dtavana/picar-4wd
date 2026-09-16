@@ -185,16 +185,16 @@ def main(servo_offset=0):
         # Scan all "forward positions" while moving
         for pos in MOVING_SCAN_POSITIONS:
             is_valid = pos.is_valid_direction()
-            if not is_valid:
-                # If any "forward positions" have an obstacle we should note it and ultimately stop
-                print(f"OBSTACLE DETECTED AT {pos.name}: {pos.distance:.1f} cm")
-                obstacle = True
-                break
             if pos is CENTER_SERVO_POSITION:
                 # If we are currently scanning the center position, process the reading for stuck detection
                 stuck = process_historical_center_readings()
                 if stuck:
                     break
+            if not is_valid:
+                # If any "forward positions" have an obstacle we should note it and ultimately stop
+                print(f"OBSTACLE DETECTED AT {pos.name}: {pos.distance:.1f} cm")
+                obstacle = True
+                break
         if not obstacle or stuck:
             continue
         fc.stop()
