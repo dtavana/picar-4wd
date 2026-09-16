@@ -28,7 +28,15 @@ CENTER_DISTANCE_SAMPLE_COUNT = 8
 # historical distance readings means the car is stuck
 CENTER_DISTANCE_STUCK_THRESHOLD = 4 
 # List to hold historical center readings
-CENTER_DISTANCE_HISTORY = [] 
+CENTER_DISTANCE_HISTORY = []
+
+# Variable that tracks the last position we turned to while avoiding an obstacle
+LAST_TURN_POSITION = ""
+# Constant used for distance weight when the ultrasonic sensor
+# did not return a valid distance for a given position
+INVALID_DISTANCE_WEIGHT = 75
+# Amount to bias distance weight to not repeat same direction turn twice
+REPEAT_TURN_WEIGHT_MULTIPLIER = 0.5
 
 class ServoPosition:
     def __init__(self, name, angle, turn_fn):
@@ -91,6 +99,28 @@ def reverse():
     time.sleep(REVERSE_TIME)
     fc.stop()
 
+def choose_target_position(valid_positions):
+    global LAST_TURN_POSITION
+    if len(valid_positions) == 1:
+        # Only one way to go, no need to choose between options
+        target_pos =  valid_positions[0]
+    else:
+        # Use the distance scanned for each position as weights.
+        # This allows us to still have randomness but prefer turning
+        # in directions where there is more clearance
+        weights = []
+        for pos in valid_positions:
+            weight = INVALID_DISTANCE_WEIGHT if pos.distance == -2 else pos.distance
+            if pos.name == LAST_TURN_POSITION:
+                # This was the last direction we turned, lets reduce the weight of it
+                # in order to still provide it as a valid direction but reduce the likelihood
+                # of turning in directions we previously turned
+                weight = weight * REPEAT_TURN_WEIGHT_MULTIPLIER
+            weights.append(weight)
+        target_pos = random.choices(valid_positions, weights=weights, k=1)[0]
+    LAST_TURN_POSITION = target_pos.name
+    return target_pos
+
 def avoid_obstacle():
     # Do an initial scan to see if a position is available to move in now
     valid_positions = scan_for_valid_positions()
@@ -102,7 +132,7 @@ def avoid_obstacle():
         valid_positions = scan_for_valid_positions()
     if valid_positions:
         print(f"VALID DIRECTIONS FOUND DURING SWEEP: {[x.name for x in valid_positions]}")
-        target_pos = random.choice(valid_positions)
+        target_pos = choose_target_position(valid_positions)
     else:
         # After rescan still no valid positions, pick one at random
         print("NO VALID DIRECTION FOUND DURING SWEEP, PICKING RANDOM DIRECTION")
