@@ -2,6 +2,7 @@ import picar_4wd as fc
 
 from ..common import utils
 
+
 class ServoPosition:
     def __init__(self, angle, name=''):
         self.angle = angle
@@ -19,8 +20,6 @@ class ServoPosition:
         Returns the measured distance at the target angle, if it should be considered an invalid distance, and whether it should consider an obstacle detected
 
         If `invalid_distance` is True then the cell should be marked as state unknown (not clear or obstacle detected)
-
-        If `invalid_distance` is False, then the cell can be marked based on whether obstacle is True or False
         '''
         distance = fc.get_distance_at(self.angle)
         return {
