@@ -19,7 +19,8 @@ def main(servo_offset=0):
             continue
 
         print(f"Setting servo to {angle} degrees")
-        fc.servo.set_angle(angle)
+        distance = fc.get_distance_at(angle)
+        print(f"Distance at angle: {distance}cm")
 
 if __name__ == "__main__":
     servo_offset = int(sys.argv[1]) if len(sys.argv) > 1 else 0
@@ -29,4 +30,4 @@ if __name__ == "__main__":
         print("\nStopping")
     finally:
         fc.stop()
-        CENTER_SERVO_POSITION.set_angle()
+        fc.servo.set_angle(0)
