@@ -1,5 +1,6 @@
-import picar_4wd as fc
 import sys
+
+import picar_4wd as fc
 
 
 def main(servo_offset=0):
@@ -21,6 +22,7 @@ def main(servo_offset=0):
         print(f"Setting servo to {angle} degrees")
         distance = fc.get_distance_at(angle)
         print(f"Distance at angle: {distance}cm")
+
 
 if __name__ == "__main__":
     servo_offset = int(sys.argv[1]) if len(sys.argv) > 1 else 0
