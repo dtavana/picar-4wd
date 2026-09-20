@@ -8,6 +8,11 @@ from .scanning import Scanner
 
 
 def main(servo_offset):
+    print("CS437 Lab 1 Part 2 Advanced Mapping Test")
+    print("Use Ctrl+C to stop at any time")
+    print("------------------------------")
+
+    
     scanner = Scanner(servo_offset)
     map_array = MapArray()
 
