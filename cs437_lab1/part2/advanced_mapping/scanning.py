@@ -6,11 +6,11 @@ from .map_array import GridState
 from .servo_position import ServoPosition
 
 # Degree for left most scan
-LEFT_SCAN_MAX = -30
+LEFT_SCAN_MAX = -60
 # Degree for right most scan
-RIGHT_SCAN_MAX = 30
+RIGHT_SCAN_MAX = 60
 # Number of degrees to increment in between scans
-SCAN_INCREMENT = 3
+SCAN_INCREMENT = 5
 
 # Number of times to take a distance sample at a given angle
 DISTANCE_SAMPLE_COUNT = 3
@@ -39,9 +39,7 @@ class Scanner:
         scan_results = []
         for pos in self.servo_positions:
             # Collect several samples at given position before updating array
-            readings = []
-            for _ in range(DISTANCE_SAMPLE_COUNT):
-                readings.append(pos.get_distance())
+            readings = pos.get_distance_at_angle(DISTANCE_SAMPLE_COUNT)
             filtered_readings = [x for x in readings if not x["invalid_distance"]]
             distance = GridState.UNKNOWN
             if len(filtered_readings) >= DISTANCE_QUORUM_COUNT:

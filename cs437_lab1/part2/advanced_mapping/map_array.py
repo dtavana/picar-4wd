@@ -4,9 +4,9 @@ from math import cos, hypot, radians, sin
 import numpy as np
 
 # Width of the underlying 2D numpy array
-WIDTH = 30
+WIDTH = 150
 # Height of the underlying 2D numpy array
-HEIGHT = 30
+HEIGHT = 150
 # Size in cm of each cell in the underlying 2D numpy array
 CELL_SIZE = 1
 
