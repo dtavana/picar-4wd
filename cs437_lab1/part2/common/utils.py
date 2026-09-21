@@ -7,4 +7,4 @@ def is_invalid_distance(distance):
     '''
     Returns whether the given distance fromthe ultrasonic sensor should be considered invalid
     '''
-    return distance < 0 or distance <= MAX_VALID_DISTANCE
+    return not (0 < distance <= MAX_VALID_DISTANCE)
