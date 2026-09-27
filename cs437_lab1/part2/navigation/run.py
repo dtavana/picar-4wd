@@ -3,6 +3,7 @@ import math
 import sys
 import time
 
+import numpy as np
 import picar_4wd as fc
 
 from ..advanced_mapping.map_array import CELL_SIZE, GridState, MapArray
@@ -35,6 +36,10 @@ DETECTION_MIN_SCORE = 0.6
 # A label counts as still in view for this many seconds after it was last detected,
 # so a single missed frame doesn't make the car start moving again
 DETECTION_HOLD_TIME = 1.5
+# Maximum number of detections listed on each iteration's CAMERA SEES line
+MAX_DETECTIONS_SHOWN = 5
+# Each character of the printed map shows a block of this many x this many cells
+MAP_BLOCK_SIZE = 3
 
 
 def goal_to_cell(map_array, forward, right):
@@ -84,6 +89,16 @@ def make_detection_pause(detector):
     return should_pause
 
 
+def describe_detections(detector):
+    '''
+    Returns a one line summary of what the camera currently sees, most confident first.
+    Lists everything the model reports, including detections below the pause thresholds.
+    '''
+    detections = sorted(detector.latest(), key=lambda d: d['score'], reverse=True)
+    seen = ", ".join(f"{d['label']} {d['score']:.2f}" for d in detections[:MAX_DETECTIONS_SHOWN])
+    return f"CAMERA SEES: {seen or 'nothing'} (detection FPS {detector.fps:.1f})"
+
+
 def wait_while_paused(should_pause):
     if should_pause is None or not should_pause():
         return
@@ -125,39 +140,64 @@ def follow_path(segments, pose, should_pause):
 
 
 def visualize(map_array, blocked, path, goal_cell):
-    state_to_symbol = {
-        GridState.UNKNOWN: "?",
-        GridState.CLEAR: ".",
-        GridState.OCCUPIED: "X",
-    }
-    print("UNKNOWN is ? | CLEAR is . | OCCUPIED is X | CLEARANCE is + | PATH is * | GOAL is G | CAR is C")
-    path_cells = set(path or [])
-    car_cell = (map_array.car_origin_row, map_array.car_origin_column)
-    for row in range(map_array.grid.shape[0]):
+    '''
+    Prints the map with the planned path, goal and obstacle clearance on top.
+    Like MapArray.visualize, each character is a MAP_BLOCK_SIZE x MAP_BLOCK_SIZE block of cells
+    and completely empty rows at the top are skipped, so the map fits in the terminal.
+    A block shows the most important thing in it: car, goal, path, obstacle, clearance, clear, unknown.
+    '''
+    size = MAP_BLOCK_SIZE
+    grid = map_array.grid
+    car_row, car_column = map_array.car_origin_row, map_array.car_origin_column
+    path_mask = np.zeros(grid.shape, dtype=bool)
+    for row, column in path or []:
+        path_mask[row, column] = True
+    goal_row, goal_column = goal_cell
+
+    print(f"UNKNOWN is ? | CLEAR is . | OCCUPIED is X | CLEARANCE is + | PATH is * | GOAL is G | CAR is C"
+          f" | each character is {size * CELL_SIZE}x{size * CELL_SIZE} cm")
+
+    # Skip blocks of rows at the top with nothing to show, stopping before the car
+    start_row = 0
+    while start_row + size <= car_row:
+        rows = slice(start_row, start_row + size)
+        has_goal = start_row <= goal_row < start_row + size
+        if has_goal or np.any(grid[rows] != GridState.UNKNOWN) or np.any(path_mask[rows]) or np.any(blocked[rows]):
+            break
+        start_row += size
+    # Keep one empty display row as a margin above the map
+    start_row = max(0, start_row - size)
+
+    for row in range(start_row, grid.shape[0], size):
         row_characters = []
-        for column in range(map_array.grid.shape[1]):
-            cell = (row, column)
-            state = map_array.get_grid_state(row, column)
-            if cell == car_cell:
+        for column in range(0, grid.shape[1], size):
+            rows, columns = slice(row, row + size), slice(column, column + size)
+            block = grid[rows, columns]
+            if row <= car_row < row + size and column <= car_column < column + size:
                 row_characters.append("C")
-            elif cell == goal_cell:
+            elif row <= goal_row < row + size and column <= goal_column < column + size:
                 row_characters.append("G")
-            elif cell in path_cells:
+            elif np.any(path_mask[rows, columns]):
                 row_characters.append("*")
-            elif blocked[row][column] and state != GridState.OCCUPIED:
+            elif np.any(block == GridState.OCCUPIED):
+                row_characters.append("X")
+            elif np.any(blocked[rows, columns]):
                 row_characters.append("+")
+            elif np.any(block == GridState.CLEAR):
+                row_characters.append(".")
             else:
-                row_characters.append(state_to_symbol[state]) # type: ignore
+                row_characters.append("?")
         print("".join(row_characters))
 
 
-def navigate(goal_forward, goal_right, servo_offset, should_pause=None):
+def navigate(goal_forward, goal_right, servo_offset, should_pause=None, detector=None):
     '''
     Drives to the goal at (goal_forward, goal_right) cm relative to the car's starting pose by
     repeatedly scanning, planning a route with A*, and following part of it.
 
     `should_pause` is an optional function that returns True while the car should wait in place
-    (e.g. while object detection sees a person).
+    (e.g. while object detection sees a person). `detector` is the optional BackgroundDetector,
+    used to print what the camera sees on each iteration.
     '''
     scanner = Scanner(servo_offset)
     map_array = MapArray()
@@ -170,6 +210,8 @@ def navigate(goal_forward, goal_right, servo_offset, should_pause=None):
     for iteration in range(1, MAX_ITERATIONS + 1):
         forward, right = pose.world_to_local(goal_x, goal_y)
         print(f"\n===== ITERATION {iteration}: car at {pose}, goal is {forward:.0f} cm forward, {right:.0f} cm right =====")
+        if detector is not None:
+            print(describe_detections(detector))
         if abs(forward) <= GOAL_TOLERANCE and abs(right) <= GOAL_TOLERANCE:
             print("GOAL REACHED")
             return True
@@ -234,7 +276,7 @@ def main():
             print("Starting object detection...")
             detector = BackgroundDetector(min_score=DETECTION_MIN_SCORE).start()
             should_pause = make_detection_pause(detector)
-        navigate(args.forward, args.right, args.servo_offset, should_pause)
+        navigate(args.forward, args.right, args.servo_offset, should_pause, detector)
     except KeyboardInterrupt:
         print("\nStopping")
     finally:
