@@ -271,7 +271,7 @@ def main():
     should_pause = None
     try:
         if not args.no_detection:
-            # Imported here so navigation can run without PyTorch/camera when --no-detection is used
+            # Imported here so navigation can run without TensorFlow/camera when --no-detection is used
             from .background_detector import BackgroundDetector
             print("Starting object detection...")
             detector = BackgroundDetector(min_score=DETECTION_MIN_SCORE).start()

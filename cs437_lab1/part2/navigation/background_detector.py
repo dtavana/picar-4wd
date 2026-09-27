@@ -1,35 +1,40 @@
 '''
-Runs the same YOLO-World detection as part2/detect.py in a background thread, so navigation
+Runs TensorFlow Lite object detection (EfficientDet-Lite0) in a background thread, so navigation
 can ask whether something (e.g. a person) is in view while the car drives.
 
-The camera and model settings match run() in detect.py. If those change there, update them here too.
+Uses the same model, labels and camera settings as the TensorFlow Lite version of part2/detect.py.
+If those change there, update them here too.
 '''
 import os
 import threading
 import time
 
 import cv2
-import torch
+import numpy as np
+import tensorflow as tf
 from picamera2 import Picamera2
-from ultralytics import YOLOWorld
 
-# The model lives next to detect.py in the part2 folder, one level up from this file
-MODEL_PATH = os.path.join(
-    os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "yolov8s-worldv2-road-10.pt")
+# The model and labels live next to detect.py in the part2 folder, one level up from this file
+PART2_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+MODEL_PATH = os.path.join(PART2_DIR, "efficientdet_lite0.tflite")
+LABELS_PATH = os.path.join(PART2_DIR, "labelmap.txt")
 # Camera frame size
 FRAME_WIDTH = 640
 FRAME_HEIGHT = 480
-# Number of CPU threads PyTorch uses for inference
-NUM_THREADS = 1
-# Image size YOLO-World uses for inference
-INPUT_SIZE = 320
-# Detections below this confidence are discarded by the model
-MODEL_CONFIDENCE = 0.25
+# Number of CPU threads TensorFlow Lite uses for inference
+NUM_THREADS = 4
+# Detections below this confidence are discarded
+MODEL_CONFIDENCE = 0.3
+
+
+def load_labels(path=LABELS_PATH):
+    with open(path, "r") as f:
+        return [line.strip() for line in f.readlines()]
 
 
 class BackgroundDetector:
     '''
-    Runs YOLO-World detection continuously in a background thread.
+    Runs TensorFlow Lite detection continuously in a background thread.
 
     Other code can call seen_recently('person') at any time to ask whether a label was
     detected recently, without waiting on the camera.
@@ -39,9 +44,11 @@ class BackgroundDetector:
         self.min_score = min_score
         self.fps = 0.0
         self.error = None
-        self._detector = None
+        self._interpreter = None
+        self._input_details = None
+        self._output_details = None
+        self._labels = None
         self._picam2 = None
-        self._device = None
         self._thread = None
         self._stop_event = threading.Event()
         self._lock = threading.Lock()
@@ -53,11 +60,12 @@ class BackgroundDetector:
         Loads the model and camera, then starts detecting in the background
         '''
         # Loaded here rather than in the thread so loading errors are raised to the caller
-        torch.set_num_threads(NUM_THREADS)
-        self._device = "cuda:0" if torch.cuda.is_available() else "cpu"
-        self._detector = YOLOWorld(MODEL_PATH)
+        self._labels = load_labels()
+        self._interpreter = tf.lite.Interpreter(model_path=MODEL_PATH, num_threads=NUM_THREADS)
+        self._interpreter.allocate_tensors()
+        self._input_details = self._interpreter.get_input_details()
+        self._output_details = self._interpreter.get_output_details()
         print("Model loaded successfully")
-        print("Classes:", self._detector.names)
 
         self._picam2 = Picamera2()
         camera_config = self._picam2.create_preview_configuration(
@@ -72,24 +80,40 @@ class BackgroundDetector:
 
     def _detect_frame(self):
         '''
-        Captures one frame and returns its detections, the same way run() in detect.py does
+        Captures one frame and returns its detections, the same way detect.py does
         '''
         image = cv2.flip(self._picam2.capture_array(), 1)
-        # Picamera2 gives RGB frames, Ultralytics expects OpenCV-style BGR
-        model_image = cv2.cvtColor(image, cv2.COLOR_RGB2BGR)
-        results = self._detector.predict(
-            source=model_image,
-            imgsz=INPUT_SIZE,
-            conf=MODEL_CONFIDENCE,
-            device=self._device,
-            verbose=False
-        )
+
+        # Resize the frame to the model's input size and add a batch dimension
+        input_height = self._input_details[0]["shape"][1]
+        input_width = self._input_details[0]["shape"][2]
+        input_dtype = self._input_details[0]["dtype"]
+        input_tensor = np.expand_dims(cv2.resize(image, (input_width, input_height)), axis=0)
+        if input_dtype == np.float32:
+            input_tensor = input_tensor.astype(np.float32) / 255.0
+        else:
+            input_tensor = input_tensor.astype(input_dtype)
+
+        self._interpreter.set_tensor(self._input_details[0]["index"], input_tensor)
+        self._interpreter.invoke()
+
+        boxes = self._interpreter.get_tensor(self._output_details[0]["index"])[0]
+        classes = self._interpreter.get_tensor(self._output_details[1]["index"])[0]
+        scores = self._interpreter.get_tensor(self._output_details[2]["index"])[0]
+
+        image_height, image_width, _ = image.shape
         detections = []
-        for box in results[0].boxes:
+        for i in range(len(scores)):
+            if scores[i] < MODEL_CONFIDENCE:
+                continue
+            ymin, xmin, ymax, xmax = boxes[i]
+            class_id = int(classes[i])
+            label = self._labels[class_id] if 0 <= class_id < len(self._labels) else "unknown"
             detections.append({
-                "label": self._detector.names.get(int(box.cls[0]), "unknown"),
-                "score": float(box.conf[0]),
-                "box": tuple(box.xyxy[0].int().tolist()),
+                "label": label,
+                "score": float(scores[i]),
+                "box": (int(xmin * image_width), int(ymin * image_height),
+                        int(xmax * image_width), int(ymax * image_height)),
             })
         return detections
 
