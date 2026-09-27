@@ -181,7 +181,9 @@ class MapArray:
         start_row = 0
         while start_row + block_size <= self.car_origin_row:
             # Scan every block_size rows to see if any are unknown
-            if np.any(self.grid[start_row:start_row + block_size] != GridState.UNKNOWN):
+            if np.any(
+                self.grid[start_row : start_row + block_size] != GridState.UNKNOWN
+            ):
                 # If all cells in this subsection of rows is UNKNOWN, terminate output here
                 break
             start_row += block_size
@@ -196,7 +198,9 @@ class MapArray:
                 ):
                     row_characters.append("C")
                 else:
-                    block = self.grid[row:row + block_size, column:column + block_size]
+                    block = self.grid[
+                        row : row + block_size, column : column + block_size
+                    ]
                     if np.any(block == GridState.OCCUPIED):
                         state = GridState.OCCUPIED
                     elif np.all(block == GridState.CLEAR):

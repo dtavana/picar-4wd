@@ -19,23 +19,27 @@ DISTANCE_QUORUM_COUNT = 2
 # Maxmimum allowed distance delta in cm between valid scans at a given angle
 MAX_ANGLE_DISANCE_DELTA = 5
 
+
 class Scanner:
     def __init__(self, servo_offset):
         self.servo_offset = servo_offset
-        self.servo_positions = [ServoPosition(x) for x in range(LEFT_SCAN_MAX, RIGHT_SCAN_MAX + 1, SCAN_INCREMENT)]
+        self.servo_positions = [
+            ServoPosition(x)
+            for x in range(LEFT_SCAN_MAX, RIGHT_SCAN_MAX + 1, SCAN_INCREMENT)
+        ]
         self.init_servo()
 
     def init_servo(self):
-        '''
+        """
         Initializes the servo before use
-        '''
+        """
         fc.servo.offset = self.servo_offset
         fc.servo.set_angle(0)
 
     def perform_scan(self):
-        '''
+        """
         Performs a scan for all initialized servo positions
-        '''
+        """
         scan_results = []
         for pos in self.servo_positions:
             # Collect several samples at given position before updating array
@@ -46,14 +50,13 @@ class Scanner:
                 # We have enough valid distance sample readings
                 distances = [x["distance"] for x in filtered_readings]
                 if max(distances) - min(distances) <= MAX_ANGLE_DISANCE_DELTA:
-                    distance = median(distances)   
+                    distance = median(distances)
             print(
                 f"{pos.angle:+3}°: "
                 f"raw={[x['distance'] for x in readings]}, "
                 f"valid={len(filtered_readings)}, "
                 f"selected={distance}"
-            )     
+            )
             scan_results.append({"position": pos, "distance": distance})
         fc.servo.set_angle(0)
         return scan_results
-
