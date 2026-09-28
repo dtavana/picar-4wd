@@ -36,6 +36,20 @@ DETECTION_MIN_SCORE = 0.6
 # A label counts as still in view for this many seconds after it was last detected,
 # so a single missed frame doesn't make the car start moving again
 DETECTION_HOLD_TIME = 1.5
+
+# Traffic sign the car obeys (Step 9): come to a full stop, wait, then continue the route
+STOP_SIGN_LABEL = "stop sign"
+# Stop signs further away score lower than people up close, so use a lower threshold
+STOP_SIGN_MIN_SCORE = 0.5
+# How long to stay stopped at a stop sign in seconds
+STOP_SIGN_WAIT_TIME = 3
+# Only stop once the sign is close: its box must be at least this fraction of the camera
+# image height (about 0.25 is 60-70 cm away for a 15 cm sign). Tune using the CAMERA SEES line
+STOP_SIGN_MIN_HEIGHT = 0.65
+# A stop sign only makes the car stop once. It counts as a new sign again after it has
+# been out of view for this many seconds
+STOP_SIGN_REARM_TIME = 3
+
 # Maximum number of detections listed on each iteration's CAMERA SEES line
 MAX_DETECTIONS_SHOWN = 5
 # Each character of the printed map shows a block of this many x this many cells
@@ -68,17 +82,54 @@ def turn_towards(pose, right):
     pose.turn(quarter_turns)
 
 
+def close_stop_sign(detector):
+    '''
+    Returns the most confident stop sign in the latest camera frame that is both confident
+    enough (STOP_SIGN_MIN_SCORE) and close enough (STOP_SIGN_MIN_HEIGHT), or None
+    '''
+    signs = [d for d in detector.latest()
+             if d['label'] == STOP_SIGN_LABEL
+             and d['score'] >= STOP_SIGN_MIN_SCORE
+             and d['height'] >= STOP_SIGN_MIN_HEIGHT]
+    return max(signs, key=lambda d: d['score'], default=None)
+
+
 def make_detection_pause(detector):
     '''
-    Returns a should_pause function that is True while any PAUSE_LABELS are in view of the camera
+    Returns a should_pause function implementing the car's traffic rules:
+      - when close to a stop sign, come to a full stop for STOP_SIGN_WAIT_TIME, then continue
+      - wait in place while any PAUSE_LABELS (people) are in view of the camera
     '''
     was_paused = False
+    # Time the current stop sign stop ends, or None when not stopped for a sign
+    stop_until = None
+    # True once we've stopped for the stop sign currently in view
+    stopped_for_sign = False
 
     def should_pause():
-        nonlocal was_paused
+        nonlocal was_paused, stop_until, stopped_for_sign
         if not detector.is_running():
             # Don't keep driving blind if the camera or model crashed
             raise RuntimeError(f"Object detection stopped: {detector.error!r}")
+
+        now = time.time()
+        if stop_until is not None:
+            if now < stop_until:
+                return True
+            print("STOP SIGN: done waiting, continuing")
+            stop_until = None
+        if not detector.seen_recently(STOP_SIGN_LABEL, STOP_SIGN_REARM_TIME):
+            # The sign we stopped for is out of view, so the next stop sign counts again
+            stopped_for_sign = False
+        elif not stopped_for_sign:
+            sign = close_stop_sign(detector)
+            if sign is not None:
+                print(f"STOP SIGN DETECTED ({sign['score']:.2f}, {sign['height']:.0%} of frame height): "
+                      f"stopping for {STOP_SIGN_WAIT_TIME} s")
+                stopped_for_sign = True
+                stop_until = now + STOP_SIGN_WAIT_TIME
+                return True
+
         paused = any(detector.seen_recently(label, DETECTION_HOLD_TIME) for label in PAUSE_LABELS)
         if paused and not was_paused:
             # Log what triggered the pause, useful for spotting false detections
@@ -95,14 +146,16 @@ def describe_detections(detector):
     Lists everything the model reports, including detections below the pause thresholds.
     '''
     detections = sorted(detector.latest(), key=lambda d: d['score'], reverse=True)
-    seen = ", ".join(f"{d['label']} {d['score']:.2f}" for d in detections[:MAX_DETECTIONS_SHOWN])
+    seen = ", ".join(
+        f"{d['label']} {d['score']:.2f}" + (f" (h {d['height']:.0%})" if d['label'] == STOP_SIGN_LABEL else "")
+        for d in detections[:MAX_DETECTIONS_SHOWN])
     return f"CAMERA SEES: {seen or 'nothing'} (detection FPS {detector.fps:.1f})"
 
 
 def wait_while_paused(should_pause):
     if should_pause is None or not should_pause():
         return
-    print("PAUSED: waiting for path to clear")
+    print("PAUSED: waiting before moving")
     while should_pause():
         time.sleep(PAUSE_POLL_INTERVAL)
     print("RESUMING")
@@ -274,7 +327,8 @@ def main():
             # Imported here so navigation can run without TensorFlow/camera when --no-detection is used
             from .background_detector import BackgroundDetector
             print("Starting object detection...")
-            detector = BackgroundDetector(min_score=DETECTION_MIN_SCORE).start()
+            detector = BackgroundDetector(
+                min_score=DETECTION_MIN_SCORE, label_min_scores={STOP_SIGN_LABEL: STOP_SIGN_MIN_SCORE}).start()
             should_pause = make_detection_pause(detector)
         navigate(args.forward, args.right, args.servo_offset, should_pause, detector)
     except KeyboardInterrupt:

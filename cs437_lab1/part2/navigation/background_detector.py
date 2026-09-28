@@ -39,9 +39,11 @@ class BackgroundDetector:
     Other code can call seen_recently('person') at any time to ask whether a label was
     detected recently, without waiting on the camera.
     '''
-    def __init__(self, min_score=0.5):
-        # Only detections scoring at least min_score count as "seen"
+    def __init__(self, min_score=0.5, label_min_scores=None):
+        # Only detections scoring at least min_score count as "seen", unless
+        # label_min_scores gives a different threshold for that label
         self.min_score = min_score
+        self.label_min_scores = label_min_scores or {}
         self.fps = 0.0
         self.error = None
         self._interpreter = None
@@ -114,6 +116,8 @@ class BackgroundDetector:
                 "score": float(scores[i]),
                 "box": (int(xmin * image_width), int(ymin * image_height),
                         int(xmax * image_width), int(ymax * image_height)),
+                # Box height as a fraction of the image height, bigger means the object is closer
+                "height": float(ymax - ymin),
             })
         return detections
 
@@ -127,7 +131,8 @@ class BackgroundDetector:
                 with self._lock:
                     self._latest = detections
                     for detection in detections:
-                        if detection["score"] >= self.min_score:
+                        min_score = self.label_min_scores.get(detection["label"], self.min_score)
+                        if detection["score"] >= min_score:
                             self._last_seen[detection["label"]] = now
 
                 # Calculate the FPS
