@@ -45,7 +45,7 @@ STOP_SIGN_MIN_SCORE = 0.5
 STOP_SIGN_WAIT_TIME = 3
 # Only stop once the sign is close: its box must be at least this fraction of the camera
 # image height (about 0.25 is 60-70 cm away for a 15 cm sign). Tune using the CAMERA SEES line
-STOP_SIGN_MIN_HEIGHT = 0.65
+STOP_SIGN_MIN_HEIGHT = 0.60
 # A stop sign only makes the car stop once. It counts as a new sign again after it has
 # been out of view for this many seconds
 STOP_SIGN_REARM_TIME = 3
