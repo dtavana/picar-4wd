@@ -1,20 +1,15 @@
-'''
-Runs TensorFlow Lite object detection (EfficientDet-Lite0) in a background thread, so navigation
-can ask whether something (e.g. a person) is in view while the car drives.
-
+"""
 Uses the same model, labels and camera settings as the TensorFlow Lite version of part2/detect.py.
-If those change there, update them here too.
-'''
+If those change there, we need to update them here too.
+"""
 import os
 import threading
 import time
-
 import cv2
 import numpy as np
 import tensorflow as tf
 from picamera2 import Picamera2
 
-# The model and labels live next to detect.py in the part2 folder, one level up from this file
 PART2_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 MODEL_PATH = os.path.join(PART2_DIR, "efficientdet_lite0.tflite")
 LABELS_PATH = os.path.join(PART2_DIR, "labelmap.txt")
@@ -26,19 +21,17 @@ NUM_THREADS = 4
 # Detections below this confidence are discarded
 MODEL_CONFIDENCE = 0.3
 
-
 def load_labels(path=LABELS_PATH):
     with open(path, "r") as f:
         return [line.strip() for line in f.readlines()]
 
-
 class BackgroundDetector:
-    '''
+    """
     Runs TensorFlow Lite detection continuously in a background thread.
 
-    Other code can call seen_recently('person') at any time to ask whether a label was
+    Other code can call seen_recently("person") at any time to ask whether a label was
     detected recently, without waiting on the camera.
-    '''
+    """
     def __init__(self, min_score=0.5, label_min_scores=None):
         # Only detections scoring at least min_score count as "seen", unless
         # label_min_scores gives a different threshold for that label
@@ -58,10 +51,7 @@ class BackgroundDetector:
         self._latest = []
 
     def start(self):
-        '''
-        Loads the model and camera, then starts detecting in the background
-        '''
-        # Loaded here rather than in the thread so loading errors are raised to the caller
+        # Loads the model and camera, then starts detecting in the background
         self._labels = load_labels()
         self._interpreter = tf.lite.Interpreter(model_path=MODEL_PATH, num_threads=NUM_THREADS)
         self._interpreter.allocate_tensors()
@@ -81,12 +71,10 @@ class BackgroundDetector:
         return self
 
     def _detect_frame(self):
-        '''
-        Captures one frame and returns its detections, the same way detect.py does
-        '''
+        # Captures one frame and returns its detections, the same way detect.py does
         image = cv2.flip(self._picam2.capture_array(), 1)
 
-        # Resize the frame to the model's input size and add a batch dimension
+        # Resize the frame to the model's input size
         input_height = self._input_details[0]["shape"][1]
         input_width = self._input_details[0]["shape"][2]
         input_dtype = self._input_details[0]["dtype"]
@@ -116,7 +104,7 @@ class BackgroundDetector:
                 "score": float(scores[i]),
                 "box": (int(xmin * image_width), int(ymin * image_height),
                         int(xmax * image_width), int(ymax * image_height)),
-                # Box height as a fraction of the image height, bigger means the object is closer
+                # Box height as a fraction of the image height, where bigger means the object is closer
                 "height": float(ymax - ymin),
             })
         return detections
@@ -135,7 +123,7 @@ class BackgroundDetector:
                         if detection["score"] >= min_score:
                             self._last_seen[detection["label"]] = now
 
-                # Calculate the FPS
+                # Calculating the FPS
                 counter += 1
                 if counter % fps_avg_frame_count == 0:
                     self.fps = fps_avg_frame_count / (time.time() - start_time)
@@ -148,17 +136,13 @@ class BackgroundDetector:
         return self._thread is not None and self._thread.is_alive()
 
     def seen_recently(self, label, within=1.5):
-        '''
-        Returns whether `label` was detected in the last `within` seconds
-        '''
+        # Returns whether "label" was detected in the last "within" seconds
         with self._lock:
             last_seen = self._last_seen.get(label)
         return last_seen is not None and time.time() - last_seen <= within
 
     def latest(self):
-        '''
-        Returns the detections from the most recent frame
-        '''
+        # Returns the detections from the most recent frame
         with self._lock:
             return list(self._latest)
 

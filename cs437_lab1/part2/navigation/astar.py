@@ -1,6 +1,5 @@
 import heapq
 from itertools import count
-
 import numpy as np
 
 # Local grid directions as (row delta, column delta), indexed so that
@@ -8,24 +7,21 @@ import numpy as np
 FORWARD, RIGHT, BACKWARD, LEFT = 0, 1, 2, 3
 MOVES = [(-1, 0), (0, 1), (1, 0), (0, -1)]
 
-# Extra cost (in cells) added for every 90 degree turn in a path. Turning the car is
-# slow and imprecise, so this makes A* prefer long straight runs over staircase paths
-# that have the same length
+# Extra cost (in cells) added for every 90 degree turn in a path
 TURN_COST = 20
 
-
 def inflate_obstacles(occupied, radius):
-    '''
-    Returns a copy of the boolean `occupied` grid where every cell within `radius` cells
+    """
+    Returns a copy of the boolean "occupied" grid where every cell within "radius" cells
     of an occupied cell is also marked, giving obstacles clearance for the car's body
-    '''
+    """
     inflated = occupied.copy()
     rows, columns = occupied.shape
     for row_delta in range(-radius, radius + 1):
         for column_delta in range(-radius, radius + 1):
             if row_delta * row_delta + column_delta * column_delta > radius * radius:
                 continue
-            # Shift the occupied grid by (row_delta, column_delta) and merge it in
+            # Shifting the occupied grid by (row_delta, column_delta) and merging it in
             inflated[
                 max(row_delta, 0):rows + min(row_delta, 0),
                 max(column_delta, 0):columns + min(column_delta, 0),
@@ -35,12 +31,11 @@ def inflate_obstacles(occupied, radius):
             ]
     return inflated
 
-
 def nearest_free_cell(blocked, target):
-    '''
-    Returns `target` if it is free, otherwise the free cell closest to it (Manhattan distance),
+    """
+    Returns "target" if it is free, otherwise the free cell closest to it (Manhattan distance),
     or None if every cell is blocked
-    '''
+    """
     if not blocked[target]:
         return target
     free_cells = np.argwhere(~blocked)
@@ -52,13 +47,13 @@ def nearest_free_cell(blocked, target):
 
 
 def find_path(blocked, start, goal, start_direction=FORWARD):
-    '''
-    Runs A* over the 4-connected grid from `start` to `goal`, returning the list of
+    """
+    Runs A* over the 4-connected grid from "start" to "goal", returning the list of
     (row, column) cells on the path (including start and goal), or None if unreachable.
 
     The search state includes the direction the car is facing so that turns can be
     penalized with TURN_COST. The start cell is never treated as blocked.
-    '''
+    """
     rows, columns = blocked.shape
     blocked_rows = blocked.tolist()
 
@@ -102,7 +97,6 @@ def find_path(blocked, start, goal, start_direction=FORWARD):
                 )
     return None
 
-
 def reconstruct_path(came_from, state):
     path = []
     while state is not None:
@@ -111,11 +105,8 @@ def reconstruct_path(came_from, state):
     path.reverse()
     return path
 
-
 def path_to_segments(path):
-    '''
-    Compresses a list of adjacent cells into straight segments of (direction, cell_count)
-    '''
+    # Compressing a list of adjacent cells into straight segments of (direction, cell_count)
     segments = []
     for (row, column), (next_row, next_column) in zip(path, path[1:]):
         direction = MOVES.index((next_row - row, next_column - column))

@@ -1,18 +1,15 @@
-'''
+"""
 Helper for tuning the calibration constants in movement.py.
 
-  forward: drives forward the given cm using FORWARD_CM_PER_SECOND. Measure the actual distance
+  forward: drives forward the given cm using FORWARD_CM_PER_SECOND. Measuring the actual distance
            and scale FORWARD_CM_PER_SECOND by (actual / requested).
   reverse: same as forward but for REVERSE_CM_PER_SECOND.
   turn:    makes the given number of 90 degree right turns (negative for left) using TURN_90_TIME.
-           Use 4 to check the car ends up facing the way it started, and adjust TURN_90_TIME.
-'''
+           Using 4 to check the car ends up facing the way it started, and adjusting TURN_90_TIME.
+"""
 import argparse
-
 import picar_4wd as fc
-
 from . import movement
-
 
 def main():
     parser = argparse.ArgumentParser(description="Calibrate navigation movement constants")
@@ -34,7 +31,6 @@ def main():
                 movement.turn(1 if quarter_turns > 0 else -1)
     finally:
         fc.stop()
-
 
 if __name__ == "__main__":
     main()

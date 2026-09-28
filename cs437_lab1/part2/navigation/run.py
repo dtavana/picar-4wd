@@ -2,17 +2,15 @@ import argparse
 import math
 import sys
 import time
-
 import numpy as np
 import picar_4wd as fc
-
 from ..advanced_mapping.map_array import CELL_SIZE, GridState, MapArray
 from ..advanced_mapping.scanning import Scanner
 from . import movement
 from .astar import FORWARD, find_path, inflate_obstacles, nearest_free_cell, path_to_segments
 from .pose import Pose
 
-# Radius in cm to pad around every obstacle so the car's body fits through gaps.
+# Radius in cm to pad around every obstacle so the car's body fits through gaps
 CLEARANCE_RADIUS = 15
 # The goal counts as reached when the car is within this many cm of it in both axes
 GOAL_TOLERANCE = 10
@@ -31,10 +29,9 @@ PAUSE_POLL_INTERVAL = 0.5
 
 # Object detection labels that make the car wait in place until they are gone
 PAUSE_LABELS = ["person"]
-# Minimum detection score for a label to count as seen (higher means fewer false pauses)
+# Minimum detection score for a label to count as seen
 DETECTION_MIN_SCORE = 0.6
-# A label counts as still in view for this many seconds after it was last detected,
-# so a single missed frame doesn't make the car start moving again
+# A label counts as still in view for these many seconds after it was last detected
 DETECTION_HOLD_TIME = 1.5
 
 # Traffic sign the car obeys (Step 9): come to a full stop, wait, then continue the route
@@ -44,34 +41,31 @@ STOP_SIGN_MIN_SCORE = 0.5
 # How long to stay stopped at a stop sign in seconds
 STOP_SIGN_WAIT_TIME = 3
 # Only stop once the sign is close: its box must be at least this fraction of the camera
-# image height (about 0.25 is 60-70 cm away for a 15 cm sign). Tune using the CAMERA SEES line
+# image height. Tuned using the CAMERA SEES line
 STOP_SIGN_MIN_HEIGHT = 0.50
 # A stop sign only makes the car stop once. It counts as a new sign again after it has
 # been out of view for this many seconds
 STOP_SIGN_REARM_TIME = 3
 
-# Maximum number of detections listed on each iteration's CAMERA SEES line
+# Maximum number of detections listed on each iteration's CAMERA SEES line,
+# so as to not overcrowd the terminal window
 MAX_DETECTIONS_SHOWN = 5
 # Each character of the printed map shows a block of this many x this many cells
 MAP_BLOCK_SIZE = 3
 
-
 def goal_to_cell(map_array, forward, right):
-    '''
-    Converts a goal relative to the car into grid coordinates, clamping goals beyond the edge
+    """
+    Converting a goal relative to the car into grid coordinates, clamping goals beyond the edge
     of the map to the nearest cell on the edge so we can still route towards them
-    '''
+    """
     row = map_array.car_origin_row - int(round(forward / CELL_SIZE))
     column = map_array.car_origin_column + int(round(right / CELL_SIZE))
     row = min(max(row, 0), map_array.grid.shape[0] - 1)
     column = min(max(column, 0), map_array.grid.shape[1] - 1)
     return row, column
 
-
 def turn_towards(pose, right):
-    '''
-    Turns the car towards the side the goal is on (turning around if it is directly behind)
-    '''
+    # Turns the car towards the side the goal is on  and turns around if it is directly behind
     if right > 0:
         quarter_turns = 1
     elif right < 0:
@@ -81,25 +75,23 @@ def turn_towards(pose, right):
     movement.turn(quarter_turns)
     pose.turn(quarter_turns)
 
-
 def close_stop_sign(detector):
-    '''
+    """
     Returns the most confident stop sign in the latest camera frame that is both confident
     enough (STOP_SIGN_MIN_SCORE) and close enough (STOP_SIGN_MIN_HEIGHT), or None
-    '''
+    """
     signs = [d for d in detector.latest()
              if d['label'] == STOP_SIGN_LABEL
              and d['score'] >= STOP_SIGN_MIN_SCORE
              and d['height'] >= STOP_SIGN_MIN_HEIGHT]
     return max(signs, key=lambda d: d['score'], default=None)
 
-
 def make_detection_pause(detector):
-    '''
+    """
     Returns a should_pause function implementing the car's traffic rules:
       - when close to a stop sign, come to a full stop for STOP_SIGN_WAIT_TIME, then continue
-      - wait in place while any PAUSE_LABELS (people) are in view of the camera
-    '''
+      - wait in place while any PAUSE_LABELS are in view of the camera
+    """
     was_paused = False
     # Time the current stop sign stop ends, or None when not stopped for a sign
     stop_until = None
@@ -109,7 +101,7 @@ def make_detection_pause(detector):
     def should_pause():
         nonlocal was_paused, stop_until, stopped_for_sign
         if not detector.is_running():
-            # Don't keep driving blind if the camera or model crashed
+            # Don't keep driving blind if the model crashed
             raise RuntimeError(f"Object detection stopped: {detector.error!r}")
 
         now = time.time()
@@ -132,25 +124,23 @@ def make_detection_pause(detector):
 
         paused = any(detector.seen_recently(label, DETECTION_HOLD_TIME) for label in PAUSE_LABELS)
         if paused and not was_paused:
-            # Log what triggered the pause, useful for spotting false detections
+            # Logging what triggered the pause as it is useful for spotting false detections
             seen = [f"{d['label']} {d['score']:.2f}" for d in detector.latest() if d['label'] in PAUSE_LABELS]
             print(f"DETECTED: {', '.join(seen) or 'recently seen ' + '/'.join(PAUSE_LABELS)}")
         was_paused = paused
         return paused
     return should_pause
 
-
 def describe_detections(detector):
-    '''
+    """
     Returns a one line summary of what the camera currently sees, most confident first.
     Lists everything the model reports, including detections below the pause thresholds.
-    '''
+    """
     detections = sorted(detector.latest(), key=lambda d: d['score'], reverse=True)
     seen = ", ".join(
         f"{d['label']} {d['score']:.2f}" + (f" (h {d['height']:.0%})" if d['label'] == STOP_SIGN_LABEL else "")
         for d in detections[:MAX_DETECTIONS_SHOWN])
     return f"CAMERA SEES: {seen or 'nothing'} (detection FPS {detector.fps:.1f})"
-
 
 def wait_while_paused(should_pause):
     if should_pause is None or not should_pause():
@@ -160,12 +150,11 @@ def wait_while_paused(should_pause):
         time.sleep(PAUSE_POLL_INTERVAL)
     print("RESUMING")
 
-
 def follow_path(segments, pose, should_pause):
-    '''
+    """
     Drives along the planned (direction, cell_count) segments for up to RESCAN_DISTANCE cm.
-    The car always faces local FORWARD at the start because the map is built from its perspective.
-    '''
+    The car always faces FORWARD at the start because the map is built from its perspective.
+    """
     local_direction = FORWARD
     travelled = 0
     for direction, cell_count in segments:
@@ -175,8 +164,6 @@ def follow_path(segments, pose, should_pause):
         distance = min(cell_count * CELL_SIZE, remaining)
         quarter_turns = (direction - local_direction) % 4
         if quarter_turns and distance < MIN_SEGMENT_DISTANCE and travelled > 0:
-            # Not worth turning for a tiny jog, skip it and keep following the path.
-            # The first segment is always driven so the car can't get stuck in place.
             continue
         wait_while_paused(should_pause)
         if quarter_turns:
@@ -191,14 +178,13 @@ def follow_path(segments, pose, should_pause):
             # Stopped early for an obstacle or a person, wait/replan from a fresh scan
             break
 
-
 def visualize(map_array, blocked, path, goal_cell):
-    '''
+    """
     Prints the map with the planned path, goal and obstacle clearance on top.
     Like MapArray.visualize, each character is a MAP_BLOCK_SIZE x MAP_BLOCK_SIZE block of cells
     and completely empty rows at the top are skipped, so the map fits in the terminal.
     A block shows the most important thing in it: car, goal, path, obstacle, clearance, clear, unknown.
-    '''
+    """
     size = MAP_BLOCK_SIZE
     grid = map_array.grid
     car_row, car_column = map_array.car_origin_row, map_array.car_origin_column
@@ -218,7 +204,7 @@ def visualize(map_array, blocked, path, goal_cell):
         if has_goal or np.any(grid[rows] != GridState.UNKNOWN) or np.any(path_mask[rows]) or np.any(blocked[rows]):
             break
         start_row += size
-    # Keep one empty display row as a margin above the map
+    # Keeping one empty display row as a margin above the map
     start_row = max(0, start_row - size)
 
     for row in range(start_row, grid.shape[0], size):
@@ -242,20 +228,19 @@ def visualize(map_array, blocked, path, goal_cell):
                 row_characters.append("?")
         print("".join(row_characters))
 
-
 def navigate(goal_forward, goal_right, servo_offset, should_pause=None, detector=None):
-    '''
+    """
     Drives to the goal at (goal_forward, goal_right) cm relative to the car's starting pose by
     repeatedly scanning, planning a route with A*, and following part of it.
 
-    `should_pause` is an optional function that returns True while the car should wait in place
-    (e.g. while object detection sees a person). `detector` is the optional BackgroundDetector,
+    "should_pause" is an optional function that returns True while the car should wait in place
+    (e.g. while object detection happens). "detector" is the optional BackgroundDetector,
     used to print what the camera sees on each iteration.
-    '''
+    """
     scanner = Scanner(servo_offset)
     map_array = MapArray()
     pose = Pose()
-    # World coordinates: +x is right of the starting direction, +y is the starting direction
+    # Coordinates: +x is right of the starting direction, +y is the starting direction
     goal_x, goal_y = goal_right, goal_forward
     clearance_cells = int(math.ceil(CLEARANCE_RADIUS / CELL_SIZE))
     failed_plans = 0
@@ -306,7 +291,6 @@ def navigate(goal_forward, goal_right, servo_offset, should_pause=None, detector
     print("GAVE UP: too many iterations without reaching the goal")
     return False
 
-
 def main():
     parser = argparse.ArgumentParser(description="CS437 Lab 1 Part 2 Self-Driving Navigation (A*)")
     parser.add_argument("forward", type=float, help="Goal distance forward from the start in cm")
@@ -314,7 +298,7 @@ def main():
     parser.add_argument("servo_offset", type=int, nargs="?", default=0, help="Ultrasonic servo offset")
     parser.add_argument("--no-detection", action="store_true", help="Drive without the camera (never pauses for people)")
     args = parser.parse_args()
-    # Print each line immediately, otherwise output piped through tee shows up in delayed chunks
+    # Print each line immediately, otherwise output through "tee" shows up in delayed chunks
     sys.stdout.reconfigure(line_buffering=True)
 
     print("CS437 Lab 1 Part 2 Self-Driving Navigation")
@@ -338,7 +322,6 @@ def main():
         fc.servo.set_angle(0)
         if detector is not None:
             detector.stop()
-
 
 if __name__ == "__main__":
     main()
